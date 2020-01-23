@@ -473,7 +473,7 @@ public class Peer {
 					searchObject.hasBeenForwarded = true;
 					
 					// Forward message to all neighbor peers (except the searcher)
-//					synchronized(peerDirectory.getLock()) {
+					synchronized(peerDirectory.getLock()) {
 						for(int i = 0; i < peerDirectory.size(); i++) {
 							PeerDirectoryEntry entry = peerDirectory.getEntry(i);
 							
@@ -487,10 +487,15 @@ public class Peer {
 								catch (Exception e) {
 									System.err.println("Failed to forward search message");
 									e.printStackTrace();
+									
+									// Remove from peer directory
+									System.out.println("Removing peer from directory");
+									peerDirectory.removeEntry(entry);
+									i -= 1;
 								}
 							}
 						}
-//					}
+					}
 //				}
 			}
 		}
