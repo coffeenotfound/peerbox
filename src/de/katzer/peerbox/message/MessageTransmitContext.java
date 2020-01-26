@@ -15,7 +15,7 @@ public interface MessageTransmitContext {
 	public static class StreamTransmitContext implements MessageTransmitContext {
 		protected OutputStream stream;
 		
-		protected byte[] cachedTempBuffer = new byte[4];
+		protected byte[] cachedTempBuffer = new byte[8];
 		
 		public StreamTransmitContext(OutputStream stream) {
 			this.stream = stream;

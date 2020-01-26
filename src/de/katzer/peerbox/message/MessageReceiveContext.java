@@ -8,7 +8,7 @@ public interface MessageReceiveContext {
 	public byte[] tempBuffer(int minSize);
 	
 	public static class StreamReceiveContext implements MessageReceiveContext {
-		protected byte[] cachedTempBuffer = new byte[4];
+		protected byte[] cachedTempBuffer = new byte[8];
 		
 		protected InputStream stream;
 		

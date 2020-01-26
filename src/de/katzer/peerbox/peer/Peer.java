@@ -28,12 +28,15 @@ import de.katzer.peerbox.message.SimpleProtocol;
 import de.katzer.peerbox.peer.message.CMessageEntry;
 import de.katzer.peerbox.peer.message.CMessageIAmAlive;
 import de.katzer.peerbox.peer.message.PMessageAreYouAlive;
+import de.katzer.peerbox.peer.message.PMessageHereIsMyTime;
+import de.katzer.peerbox.peer.message.PMessageHereIsYourNewTime;
 import de.katzer.peerbox.peer.message.PMessageIAmFound;
 import de.katzer.peerbox.peer.message.PMessageIAmLeader;
 import de.katzer.peerbox.peer.message.PMessageNodeRequest;
 import de.katzer.peerbox.peer.message.PMessageNodeResponse;
 import de.katzer.peerbox.peer.message.PMessageNodeSearch;
 import de.katzer.peerbox.peer.message.PMessageSendMsg;
+import de.katzer.peerbox.peer.message.PMessageTellMeYourTime;
 
 public class Peer {
 	public static int DEFAULT_DIRECTORY_SERVER_PORT = 3333;
@@ -83,6 +86,10 @@ public class Peer {
 		p2pProtocol.register((byte)8, PMessageSendMsg.class, this::handleSendMsgMessage);
 		p2pProtocol.register((byte)9, PMessageAreYouAlive.class, this::handleAreYouAliveMessage);
 		p2pProtocol.register((byte)10, PMessageIAmLeader.class, this::handleIAmLeaderMessage);
+		
+		p2pProtocol.register((byte)11, PMessageTellMeYourTime.class, this::handleTellMeYourTimeMessage);
+		p2pProtocol.register((byte)12, PMessageHereIsMyTime.class, this::handleHereIsMyTimeMessage);
+		p2pProtocol.register((byte)13, PMessageHereIsYourNewTime.class, this::handleHereIsYourNewTimeMessage);
 		
 		// Setup message server
 		int serverPort = (this.isServer ? DEFAULT_DIRECTORY_SERVER_PORT : 0);
@@ -591,6 +598,21 @@ public class Peer {
 		
 		// Log
 		System.out.println("Received new leader: peer " + this.currentLeaderPeerId);
+	}
+	
+	/** PEER SIDE: (11) TellMeYourTimeMessage */
+	protected void handleTellMeYourTimeMessage(MessageClient client, PMessageTellMeYourTime message) {
+		
+	}
+	
+	/** PEER SIDE: (12) HereIsMyTimeMessage */
+	protected void handleHereIsMyTimeMessage(MessageClient client, PMessageHereIsMyTime message) {
+		
+	}
+	
+	/** PEER SIDE: (13) HereIsYourNewTimeMessage */
+	protected void handleHereIsYourNewTimeMessage(MessageClient client, PMessageHereIsYourNewTime message) {
+		
 	}
 	
 	protected void sendHeartBeatToServer() {
