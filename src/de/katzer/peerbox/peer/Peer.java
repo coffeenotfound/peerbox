@@ -6,6 +6,7 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.Random;
 import java.util.Scanner;
 import java.util.concurrent.BlockingDeque;
@@ -19,6 +20,7 @@ import de.katzer.peerbox.PeerDescriptor;
 import de.katzer.peerbox.PeerDirectory;
 import de.katzer.peerbox.PeerDirectory.PeerDirectoryEntry;
 import de.katzer.peerbox.PeerSearchObject;
+import de.katzer.peerbox.TimeSyncOffsetObject;
 import de.katzer.peerbox.directoryserver.message.SMessageEntryResponse;
 import de.katzer.peerbox.message.ConnectionHandler;
 import de.katzer.peerbox.message.Message;
@@ -67,6 +69,10 @@ public class Peer {
 	public final Object searchObjectListLock = new Object();
 	
 	public int currentLeaderPeerId = -1;
+	public long currentTimeOffsetMS = 0;
+	
+	public ArrayList<TimeSyncOffsetObject> timeOffsetObjectList = new ArrayList<>();
+	public final Object timeOffsetObjectListLock = new Object();
 	
 	public Peer(boolean isServer) {
 		this.isServer = isServer;
@@ -597,22 +603,53 @@ public class Peer {
 		this.currentLeaderPeerId = (int)message.sourcePeerId;
 		
 		// Log
-		System.out.println("Received new leader: peer " + this.currentLeaderPeerId);
+		System.out.println("Received new leader: peer " + (int)this.currentLeaderPeerId);
 	}
 	
 	/** PEER SIDE: (11) TellMeYourTimeMessage */
 	protected void handleTellMeYourTimeMessage(MessageClient client, PMessageTellMeYourTime message) {
+		// Get time
+//		long myTimeMS = new Date().getTime() + currentTimeOffsetMS; // DEBUG: Send with offset or without?
+		long myTimeMS = new Date().getTime();
 		
+		// Send response
+		PMessageHereIsMyTime response = new PMessageHereIsMyTime(this.ownPeerIPv4, this.ownPeerPort, this.ownPeerID, myTimeMS);
+		
+		try {
+			sendPacketToPeerWithoutResponse(message.peerIP, message.peerPort, response);
+		}
+		catch(Exception e) {
+			System.err.println("Failed to send response HereIsMyTimeMessage:");
+			e.printStackTrace();
+		}
 	}
 	
 	/** PEER SIDE: (12) HereIsMyTimeMessage */
 	protected void handleHereIsMyTimeMessage(MessageClient client, PMessageHereIsMyTime message) {
+		// Create time offset object
+		long timeOffset = message.timestampEpochMS - new Date().getTime();
+		TimeSyncOffsetObject timeObject = new TimeSyncOffsetObject(new PeerDescriptor(message.peerIP, message.peerPort, message.peerId), timeOffset);
 		
+		// Put into list
+		synchronized(timeOffsetObjectListLock) {
+			timeOffsetObjectList.add(timeObject);
+		}
 	}
 	
 	/** PEER SIDE: (13) HereIsYourNewTimeMessage */
 	protected void handleHereIsYourNewTimeMessage(MessageClient client, PMessageHereIsYourNewTime message) {
+		// Add peer to directory
+		peerDirectory.addPeer(message.peerIP, message.peerPort, message.peerId);
 		
+		// Calc offset
+		long newOffset = message.timestampEpochMS - new Date().getTime();
+		
+		// DEBUG: Log
+		long previousOffset = this.currentTimeOffsetMS;
+		System.out.println("RECEIVED NEW TIME OFFSET (new " + newOffset + ", prev " + previousOffset + ") FROM PEER " + (int)message.peerId);
+		
+		// Set own offset
+		this.currentTimeOffsetMS = newOffset;
 	}
 	
 	protected void sendHeartBeatToServer() {
@@ -685,8 +722,8 @@ public class Peer {
 			MessageClient client = new MessageClient(p2pProtocol, new InetSocketAddress(targetIP.toJavaAddress(), targetPort));
 			client.open();
 			
-			// DEBUG: May or may not solve the 'connection refused: connect' bug when forwarding node search messages
-			Thread.sleep(100L);
+//			// DEBUG: May or may not solve the 'connection refused: connect' bug when forwarding node search messages
+//			Thread.sleep(100L);
 			
 			client.sendMessage(message);
 			
@@ -830,7 +867,7 @@ public class Peer {
 			System.out.println(".. Checking peer " + i);
 			
 			// Search peer with id
-			PeerDescriptor foundPeer = searchForPeerId((char)i, 2000L);
+			PeerDescriptor foundPeer = searchForPeerId((char)i, 1000L);
 			
 			if(foundPeer != null) {
 				boolean isAlive = false;
@@ -901,7 +938,7 @@ public class Peer {
 					System.out.println(".. Notifing peer " + i);
 					
 					// Search peer with id
-					PeerDescriptor foundPeer = searchForPeerId((char)i, 2000L);
+					PeerDescriptor foundPeer = searchForPeerId((char)i, 1000L);
 					
 					if(foundPeer != null) {
 						// Send message
@@ -928,6 +965,97 @@ public class Peer {
 			
 			// We didn't have the highest id, someone else is the new leader: return false
 			return false;
+		}
+	}
+	
+	protected void startTimeSync() {
+		// Log
+		System.out.println("Starting timesync...");
+		
+		// Clear the time offset list
+		synchronized(this.timeOffsetObjectListLock) {
+			timeOffsetObjectList.clear();
+		}
+		
+		// Ask all peers to give their time
+		for(int i = (int)ownPeerID; i >= 0; i--) {
+			// Log
+			System.out.println(".. Asking for current time from peer " + (int)i);
+			
+			try {
+				// Search peer with id
+				PeerDescriptor foundPeer = searchForPeerId((char)i, 1000L);
+				
+				if(foundPeer != null) {
+					// Send message
+					PMessageTellMeYourTime tellMeYourTimeMessage = new PMessageTellMeYourTime(ownPeerIPv4, ownPeerPort, ownPeerID);
+					sendPacketToPeerWithoutResponse(foundPeer.ip, foundPeer.port, tellMeYourTimeMessage);
+				}
+			}
+			catch(Exception e) {
+				System.err.println("Failed to send TellMeYourTime message to peer");
+				e.printStackTrace();
+			}
+		}
+		
+		// Wait a bit for all answers to come in
+		try {
+			System.out.println(".. Waiting for results...");
+			Thread.sleep(1500L);
+		}
+		catch(Exception e) {
+			e.printStackTrace();
+		}
+		
+		// Calculate new time offset
+//		long myCurrentTimeMS = new Date().getTime();
+		long offsetAccum = 0L;
+		long finalOffset;
+		
+		synchronized(this.timeOffsetObjectListLock) {
+			int numOffsets = 0;
+			for(TimeSyncOffsetObject timeObject : this.timeOffsetObjectList) {
+				if(timeObject != null) {
+					offsetAccum += timeObject.offsetMS;
+					numOffsets++;
+				}
+			}
+			
+			if(numOffsets > 0) {
+				finalOffset = offsetAccum / numOffsets;
+			}
+			else {
+				finalOffset = 0;
+			}
+			
+			// Store in field
+			this.currentTimeOffsetMS = finalOffset;
+			
+			// Notify all peers (that answered)
+			for(TimeSyncOffsetObject timeObject : this.timeOffsetObjectList) {
+				if(timeObject != null) {
+					PeerDescriptor peer = timeObject.senderPeer;
+					
+					// Calculate new offset time
+					long newTime = new Date().getTime() + finalOffset;
+					PMessageHereIsYourNewTime newTimeMessage = new PMessageHereIsYourNewTime(ownPeerIPv4, ownPeerPort, ownPeerID, newTime);
+					
+					try {
+						// Send to peer
+						sendPacketToPeerWithoutResponse(peer.ip, peer.port, newTimeMessage);
+					}
+					catch(Exception e) {
+						System.err.println("Failed to send HereIsYourNewTimeMessage to peer " + (int)peer.peerId);
+						e.printStackTrace();
+					}
+				}
+			}
+			
+			// Log
+			System.out.println("Got new time offset (" + this.currentTimeOffsetMS + ")");
+			
+			// Clear the list again (for good measure)
+			this.timeOffsetObjectList.clear();
 		}
 	}
 	
@@ -1003,6 +1131,24 @@ public class Peer {
 							}
 							else {
 								System.out.println("Election finished: We are not the new leader but we should be notified soon");
+							}
+						}
+						else if(splitLine[0].equals("time")) {
+							// Get the current (offset) time
+							long currentTimeMS = new Date().getTime();
+							long offset = this.currentTimeOffsetMS;
+							long offsetTime = currentTimeMS + offset;
+							
+							// Display current time
+							System.out.println("The current time is " + new Date(offsetTime).toString() + " (real " + currentTimeMS + ", offset " + offset + ")");
+						}
+						else if(splitLine[0].equals("timesync")) {
+							// Check if we are the leader
+							if(this.ownPeerID != this.currentLeaderPeerId) {
+								System.out.println("Time sync can only be started as leader!");
+							}
+							else {
+								startTimeSync();
 							}
 						}
 					}

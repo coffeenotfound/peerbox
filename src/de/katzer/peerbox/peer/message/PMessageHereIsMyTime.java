@@ -18,10 +18,12 @@ public class PMessageHereIsMyTime extends Message {
 		// Empty constructor
 	}
 	
-	public PMessageHereIsMyTime(IPv4 ip, char port, char peerId) {
+	public PMessageHereIsMyTime(IPv4 ip, char port, char peerId, long myTimeMS) {
 		this.peerIP = ip;
 		this.peerPort = port;
 		this.peerId = peerId;
+		
+		this.timestampEpochMS = myTimeMS;
 	}
 	
 	@Override
